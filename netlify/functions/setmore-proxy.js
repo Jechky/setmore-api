@@ -47,7 +47,88 @@ exports.handler = async (event) => {
             };
         }
         
-        // Prepare API request
+        // Handle categories endpoint
+        if (path === '/categories' && event.httpMethod === 'GET') {
+            const apiRes = await fetch(`${API_BASE}/bookingapi/services/categories`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const apiData = await apiRes.json();
+            
+            return {
+                statusCode: apiRes.status,
+                headers,
+                body: JSON.stringify(apiData)
+            };
+        }
+        
+        // Handle category by key endpoint
+        if (path.startsWith('/categories/') && event.httpMethod === 'GET') {
+            const categoryKey = path.replace('/categories/', '');
+            
+            const apiRes = await fetch(`${API_BASE}/bookingapi/services/categories/${categoryKey}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const apiData = await apiRes.json();
+            
+            return {
+                statusCode: apiRes.status,
+                headers,
+                body: JSON.stringify(apiData)
+            };
+        }
+        
+        // Handle slots endpoint with special formatting
+        if (path === '/slots' && event.httpMethod === 'POST') {
+            const apiRes = await fetch(`${API_BASE}/bookingapi/slots`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: event.body
+            });
+            
+            const apiData = await apiRes.json();
+            
+            // Convert time slots to 12-hour format and wrap in slots object
+            if (apiData.response && Array.isArray(apiData.data)) {
+                const convertTo12Hour = (time24) => {
+                    if (!time24 || !time24.includes(':')) {
+                        return time24;
+                    }
+                    
+                    const [hours, minutes] = time24.split(':');
+                    const hour24 = parseInt(hours);
+                    const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+                    const period = hour24 >= 12 ? 'PM' : 'AM';
+                    
+                    return `${hour12}:${minutes} ${period}`;
+                };
+                
+                // Wrap slots in data.slots structure as expected by the widget
+                apiData.data = {
+                    slots: apiData.data.map(convertTo12Hour)
+                };
+            }
+            
+            return {
+                statusCode: apiRes.status,
+                headers,
+                body: JSON.stringify(apiData)
+            };
+        }
+        
+        // Default handler for all other endpoints
         const apiUrl = `${API_BASE}/bookingapi${path}`;
         const apiOptions = {
             method: event.httpMethod,
@@ -66,24 +147,6 @@ exports.handler = async (event) => {
         const apiRes = await fetch(apiUrl, apiOptions);
         const apiData = await apiRes.json();
         
-        // Convert time slots to 12-hour format
-        if (path === '/slots' && apiData.response && Array.isArray(apiData.data)) {
-            const convertTo12Hour = (time24) => {
-                if (!time24 || !time24.includes(':')) {
-                    return time24;
-                }
-                
-                const [hours, minutes] = time24.split(':');
-                const hour24 = parseInt(hours);
-                const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
-                const period = hour24 >= 12 ? 'PM' : 'AM';
-                
-                return `${hour12}:${minutes} ${period}`;
-            };
-            
-            apiData.data = apiData.data.map(convertTo12Hour);
-        }
-        
         // Return API response
         return {
             statusCode: apiRes.status,
@@ -99,7 +162,8 @@ exports.handler = async (event) => {
             headers,
             body: JSON.stringify({
                 error: 'Internal server error',
-                message: error.message
+                message: error.message,
+                details: error.stack
             })
         };
     }
